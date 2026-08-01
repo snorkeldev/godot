@@ -66,7 +66,7 @@
 #include "modules/mono/csharp_script.h"
 #endif
 
-#define CONTRIBUTE_URL vformat("%s/contributing/documentation/updating_the_class_reference.html", GODOT_VERSION_DOCS_URL)
+#define CONTRIBUTE_URL "https://contributing.godotengine.org/en/latest/documentation/class_reference.html"
 
 #ifdef MODULE_MONO_ENABLED
 // Sync with the types mentioned in https://docs.godotengine.org/en/stable/tutorials/scripting/c_sharp/c_sharp_differences.html
@@ -3104,6 +3104,10 @@ void EditorHelp::load_script_doc_cache() {
 		return;
 	}
 
+	if (EditorNode::is_cmdline_mode()) {
+		return;
+	}
+
 	_wait_for_thread();
 
 	if (!ResourceLoader::exists(get_script_doc_cache_full_path())) {
@@ -3311,6 +3315,12 @@ void EditorHelp::_notification(int p_what) {
 
 		case NOTIFICATION_THEME_CHANGED: {
 			if (is_inside_tree()) {
+				if (is_visible_in_tree()) {
+					_update_doc();
+				} else {
+					update_pending = true;
+				}
+
 				_class_desc_resized(true);
 			}
 			update_toggle_files_button();
@@ -3455,9 +3465,9 @@ EditorHelp::EditorHelp() {
 	status_bar->set_custom_minimum_size(Size2(0, 24 * EDSCALE));
 
 	toggle_files_button = memnew(Button);
+	toggle_files_button->set_theme_type_variation(SceneStringName(FlatButton));
 	toggle_files_button->set_accessibility_name(TTRC("Scripts"));
 	toggle_files_button->set_tooltip_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
-	toggle_files_button->set_flat(true);
 	toggle_files_button->connect(SceneStringName(pressed), callable_mp(this, &EditorHelp::_toggle_files_pressed));
 	status_bar->add_child(toggle_files_button);
 
@@ -4617,7 +4627,7 @@ void EditorHelpBitTooltip::_notification(int p_what) {
 	}
 }
 
-Control *EditorHelpBitTooltip::show_tooltip(Control *p_target, const String &p_symbol, const String &p_prologue, bool p_use_class_prefix) {
+Control *EditorHelpBitTooltip::make_tooltip(Control *p_target, const String &p_symbol, const String &p_prologue, bool p_use_class_prefix) {
 	ERR_FAIL_NULL_V(p_target, _make_invisible_control());
 
 	// Show the custom tooltip only if it is not already visible.
@@ -4682,7 +4692,7 @@ void EditorHelpBitTooltip::popup_under_cursor() {
 	// When `FLAG_POPUP` is false, it prevents the editor from losing focus when displaying the tooltip.
 	// This way, clicks and double-clicks are still available outside the tooltip.
 	set_flag(Window::FLAG_POPUP, false);
-	set_flag(Window::FLAG_NO_FOCUS, !is_embedded());
+	set_flag(Window::FLAG_NO_FOCUS, true);
 	popup(r);
 }
 
@@ -4887,7 +4897,7 @@ FindBar::FindBar() {
 	matches_label->hide();
 
 	find_prev = memnew(Button);
-	find_prev->set_flat(true);
+	find_prev->set_theme_type_variation(SceneStringName(FlatButton));
 	find_prev->set_disabled(results_count < 1);
 	find_prev->set_tooltip_text(TTR("Previous Match"));
 	add_child(find_prev);
@@ -4895,7 +4905,7 @@ FindBar::FindBar() {
 	find_prev->connect(SceneStringName(pressed), callable_mp(this, &FindBar::search_prev));
 
 	find_next = memnew(Button);
-	find_next->set_flat(true);
+	find_next->set_theme_type_variation(SceneStringName(FlatButton));
 	find_next->set_disabled(results_count < 1);
 	find_next->set_tooltip_text(TTR("Next Match"));
 	add_child(find_next);
@@ -4903,7 +4913,7 @@ FindBar::FindBar() {
 	find_next->connect(SceneStringName(pressed), callable_mp(this, &FindBar::search_next));
 
 	hide_button = memnew(Button);
-	hide_button->set_flat(true);
+	hide_button->set_theme_type_variation(SceneStringName(FlatButton));
 	hide_button->set_tooltip_text(TTR("Hide"));
 	hide_button->set_focus_mode(FOCUS_ACCESSIBILITY);
 	hide_button->connect(SceneStringName(pressed), callable_mp(this, &FindBar::_hide_bar));

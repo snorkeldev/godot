@@ -680,6 +680,9 @@ void ColorPicker::_copy_hsv_okhsl_to_normalized() {
 }
 
 Color ColorPicker::_color_apply_intensity(const Color &col) const {
+	if (intensity == 0.0f) {
+		return col;
+	}
 	Color linear_color = col.srgb_to_linear();
 	Color result;
 	float multiplier = Math::pow(2, intensity);
@@ -969,6 +972,7 @@ void ColorPicker::set_picker_shape(PickerShapeType p_shape) {
 	}
 #endif
 
+	_copy_normalized_to_hsv_okhsl();
 	_update_controls();
 	_update_color();
 }
@@ -2568,6 +2572,7 @@ void ColorPickerButton::_update_picker() {
 		picker->connect("color_changed", callable_mp(this, &ColorPickerButton::_color_changed));
 		popup->connect("about_to_popup", callable_mp(this, &ColorPickerButton::_about_to_popup));
 		popup->connect("popup_hide", callable_mp(this, &ColorPickerButton::_modal_closed));
+		popup->connect("tree_exiting", callable_mp(this, &ColorPickerButton::_modal_closed));
 		picker->connect(SceneStringName(minimum_size_changed), callable_mp((Window *)popup, &Window::reset_size));
 		picker->set_pick_color(color);
 		picker->set_edit_alpha(edit_alpha);

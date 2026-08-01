@@ -596,6 +596,7 @@ void DisplayServerAndroid::window_set_flag(DisplayServer::WindowFlags p_flag, bo
 }
 
 bool DisplayServerAndroid::window_get_flag(DisplayServer::WindowFlags p_flag, DisplayServer::WindowID p_window) const {
+	ERR_FAIL_COND_V(p_window != MAIN_WINDOW_ID, false);
 	switch (p_flag) {
 		case WindowFlags::WINDOW_FLAG_TRANSPARENT:
 			return is_window_transparency_available();
@@ -710,6 +711,14 @@ void DisplayServerAndroid::notify_surface_changed(int p_width, int p_height) {
 	}
 }
 
+void DisplayServerAndroid::notify_application_paused() {
+#if defined(RD_ENABLED)
+	if (rendering_device) {
+		rendering_device->update_pipeline_cache();
+	}
+#endif // defined(RD_ENABLED)
+}
+
 DisplayServerAndroid::DisplayServerAndroid(const String &p_rendering_driver, DisplayServer::WindowMode p_mode, DisplayServer::VSyncMode p_vsync_mode, uint32_t p_flags, const Vector2i *p_position, const Vector2i &p_resolution, int p_screen, Context p_context, int64_t p_parent_window, Error &r_error) {
 	rendering_driver = p_rendering_driver;
 
@@ -734,7 +743,7 @@ DisplayServerAndroid::DisplayServerAndroid(const String &p_rendering_driver, Dis
 #if defined(GLES3_ENABLED)
 			bool fallback_to_opengl3 = GLOBAL_GET("rendering/rendering_device/fallback_to_opengl3");
 			if (fallback_to_opengl3 && rendering_driver != "opengl3") {
-				WARN_PRINT("Your device seem not to support Vulkan, switching to OpenGL 3.");
+				WARN_PRINT("Your device does not seem to support Vulkan, switching to OpenGL 3.");
 				rendering_driver = "opengl3";
 				OS::get_singleton()->set_current_rendering_method("gl_compatibility");
 				OS::get_singleton()->set_current_rendering_driver_name(rendering_driver);

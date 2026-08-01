@@ -1135,7 +1135,17 @@ RDD::ShaderID RenderingDeviceDriverMetal::shader_create_from_container(const Ref
 	// We need to regenerate the shader if the cache is moved to an incompatible device.
 	ERR_FAIL_COND_V_MSG(device_properties->features.argument_buffers_tier < MTLArgumentBuffersTier2 && mtl_reflection_data.uses_argument_buffers(),
 			RDD::ShaderID(),
-			"Shader was generated with argument buffers, but device has limited support");
+			"Shader was compiled with argument buffers enabled, but this device does not support them");
+
+	uint32_t msl_version = make_msl_version(device_properties->features.mslVersionMajor, device_properties->features.mslVersionMinor);
+	ERR_FAIL_COND_V_MSG(msl_version < mtl_reflection_data.msl_version,
+			RDD::ShaderID(),
+			"Shader was compiled for a newer version of Metal");
+
+	MTLGPUFamily compiled_gpu_family = static_cast<MTLGPUFamily>(mtl_reflection_data.profile.gpu);
+	ERR_FAIL_COND_V_MSG(device_properties->features.highestFamily < compiled_gpu_family,
+			RDD::ShaderID(),
+			"Shader was generated for a newer Apple GPU");
 
 	MTLCompileOptions *options = [MTLCompileOptions new];
 	uint32_t major = mtl_reflection_data.msl_version / 10000;
@@ -1176,6 +1186,9 @@ RDD::ShaderID RenderingDeviceDriverMetal::shader_create_from_container(const Ref
 
 		MDLibrary *library = nil;
 		if (shader_data.library_size > 0) {
+			ERR_FAIL_COND_V_MSG(mtl_reflection_data.os_min_version > device_properties->os_version,
+					RDD::ShaderID(),
+					"Metal shader binary was generated for a newer target OS");
 			dispatch_data_t binary = dispatch_data_create(decompressed_code.ptr() + shader_data.source_size, shader_data.library_size, dispatch_get_main_queue(), DISPATCH_DATA_DESTRUCTOR_DEFAULT);
 			library = [MDLibrary newLibraryWithCacheEntry:cd
 												   device:device
@@ -1819,14 +1832,14 @@ RDD::RenderPassID RenderingDeviceDriverMetal::render_pass_create(VectorView<Atta
 	}
 
 	static const MTLLoadAction LOAD_ACTIONS[] = {
-		[ATTACHMENT_LOAD_OP_LOAD] = MTLLoadActionLoad,
-		[ATTACHMENT_LOAD_OP_CLEAR] = MTLLoadActionClear,
-		[ATTACHMENT_LOAD_OP_DONT_CARE] = MTLLoadActionDontCare,
+		MTLLoadActionLoad, // [ATTACHMENT_LOAD_OP_LOAD]
+		MTLLoadActionClear, // [ATTACHMENT_LOAD_OP_CLEAR]
+		MTLLoadActionDontCare, // [ATTACHMENT_LOAD_OP_DONT_CARE]
 	};
 
 	static const MTLStoreAction STORE_ACTIONS[] = {
-		[ATTACHMENT_STORE_OP_STORE] = MTLStoreActionStore,
-		[ATTACHMENT_STORE_OP_DONT_CARE] = MTLStoreActionDontCare,
+		MTLStoreActionStore, // [ATTACHMENT_STORE_OP_STORE]
+		MTLStoreActionDontCare, // [ATTACHMENT_STORE_OP_DONT_CARE]
 	};
 
 	Vector<MDAttachment> attachments;
@@ -2743,6 +2756,8 @@ bool RenderingDeviceDriverMetal::has_feature(Features p_feature) {
 			return device_properties->features.metal_fx_temporal;
 		case SUPPORTS_IMAGE_ATOMIC_32_BIT:
 			return device_properties->features.supports_native_image_atomics;
+		case SUPPORTS_VULKAN_MEMORY_MODEL:
+			return true;
 		default:
 			return false;
 	}

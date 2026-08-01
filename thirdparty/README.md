@@ -8,7 +8,7 @@ readability.
 ## accesskit
 
 - Upstream: https://github.com/AccessKit/accesskit-c
-- Version: 0.16.0 (06c1779473ff4304f42ea254f77fef2e33f982b0, 2025)
+- Version: 0.17.0 (f69571eca23151be07a41bf493ca48a2b44b6a8b, 2025)
 - License: MIT
 
 Files extracted from upstream source:
@@ -90,6 +90,7 @@ Patches:
 - `0003-remove-tinydds-qoi.patch` (GH-97582)
 - `0004-ambiguous-calls.patch` (GH-103968)
 - `0005-msvc-include-ctype.patch` (GH-106155)
+- `0006-clang-warning-exclude.patch` (GH-121603)
 
 
 ## brotli
@@ -436,7 +437,7 @@ Patches:
 ## harfbuzz
 
 - Upstream: https://github.com/harfbuzz/harfbuzz
-- Version: 11.2.1 (33a3f8de60dcad7535f14f07d6710144548853ac, 2025)
+- Version: 11.3.2 (4e3df1c1383481ed5717603d5dd3453a04fb16ba, 2025)
 - License: MIT
 
 Files extracted from upstream source:
@@ -444,7 +445,7 @@ Files extracted from upstream source:
 - `AUTHORS`, `COPYING`, `THANKS`
 - From the `src` folder, recursively:
   - All the `.cc`, `.h`, `.hh` files
-  - Except `main.cc`, `harfbuzz*.cc`, `failing-alloc.c`, `test*.cc`, `hb-wasm*.*`, `wasm/*`
+  - Except `main.cc`, `harfbuzz*.cc`, `failing-alloc.c`, `test*.cc`, `hb-wasm*.*`, `hb-harfrust.cc`, `wasm/*`, `ms-use/*`, `rust/*`
 
 
 ## hidapi
@@ -487,6 +488,10 @@ Files generated from upstream source:
    `ICU_DATA_FILTER_FILE={GODOT_SOURCE}/thirdparty/icu4c/godot_data.json ./runConfigureICU {PLATFORM} --with-data-packaging=common`
 4. Delete `data/out` folder and rebuild data: `cd data && rm -rf ./out && make`
 5. Copy `source/data/out/icudt{ICU_VERSION}l.dat` to the `{GODOT_SOURCE}/thirdparty/icu4c/icudt_godot.dat`
+
+Patches:
+
+- `0001-remove-final.patch` (GH-121603)
 
 
 ## jolt_physics
@@ -579,7 +584,7 @@ Files extracted from upstream source:
 ## libpng
 
 - Upstream: http://libpng.org/pub/png/libpng.html
-- Version: 1.6.48 (ea127968204cc5d10f3fc9250c306b9e8cbd9b80, 2025)
+- Version: 1.6.58 (3061454d980de7d53608f594194cfac722721d2a, 2026)
 - License: libpng/zlib
 
 Files extracted from upstream source:
@@ -642,7 +647,7 @@ See `linuxbsd_headers/README.md`.
 ## manifold
 
 - Upstream: https://github.com/elalish/manifold
-- Version: 3.1.1 (2f4741e0b1de44d6d461b869e481351335340b44, 2025)
+- Version: git (76208dc02b069d2be50ed2d8a9279ee5622fa5fd, 2025)
 - License: Apache 2.0
 
 File extracted from upstream source:
@@ -654,7 +659,7 @@ File extracted from upstream source:
 ## mbedtls
 
 - Upstream: https://github.com/Mbed-TLS/mbedtls
-- Version: 3.6.4 (c765c831e5c2a0971410692f92f7a81d6ec65ec2, 2025)
+- Version: 3.6.7 (068ff080b369adfac81509f9b57b2afabaf82dc5, 2026)
 - License: Apache 2.0
 
 File extracted from upstream release tarball:
@@ -664,7 +669,7 @@ File extracted from upstream release tarball:
 - From `library/` to `thirdparty/mbedtls/library/`:
   - All `.c` and `.h` files
   - Except `bignum_mod.c`, `block_cipher.c`, `ecp_curves_new.c`, `lmots.c`,
-  `lms.c`, `bignum_core_invasive.h`
+    `lms.c`
 - The `LICENSE` file (edited to keep only the Apache 2.0 variant)
 - Added 2 files `godot_core_mbedtls_platform.c` and `godot_core_mbedtls_config.h`
   providing configuration for light bundling with core
@@ -746,8 +751,8 @@ Files extracted from upstream source:
 
 ## minizip
 
-- Upstream: https://www.zlib.net
-- Version: 1.3.1 (zlib contrib, 2024)
+- Upstream: https://github.com/madler/zlib
+- Version: 1.3.2 (da607da739fa6047df13e66a2af6b8bec7c2a498, 2026)
 - License: zlib
 
 Files extracted from the upstream source:
@@ -892,7 +897,7 @@ Exclude:
 ## pcre2
 
 - Upstream: http://www.pcre.org
-- Version: 10.45 (2dce7761b1831fd3f82a9c2bd5476259d945da4d, 2025)
+- Version: 10.46 (b2bd4254b379b9d7dc9a3dda060a7e27009ccdff, 2025)
 - License: BSD-3-Clause
 
 Files extracted from upstream source:
@@ -904,6 +909,11 @@ Files extracted from upstream source:
 - `src/pcre2_ucptables.c`
 - `deps/sljit/sljit_src`
 - `AUTHORS.md` and `LICENCE.md`
+
+Patches:
+
+- `0001-fix-format-enumerate.patch` (GH-114766)
+- `0002-fix-duplicate-symbols.patch` (GH-114766)
 
 
 ## recastnavigation
@@ -969,6 +979,10 @@ Patches:
 
 - `0001-remove-unnecessary-subsystems.patch` (GH-106218)
 - `0002-msvc-constants-fpstrict.patch` (GH-106218)
+- `0003-std-include.patch` (GH-108144)
+- `0004-errno-include.patch` (GH-108354)
+- `0005-fix-libudev-dbus.patch` (GH-108373)
+- `0006-fix-cs-environ.patch` (GH-109283)
 
 The SDL source code folder includes `hidapi` library inside of folder `thirdparty/sdl/hidapi/`.
 Its version and license is described in this file under `hidapi`.
@@ -1038,6 +1052,7 @@ Files extracted from upstream source:
 Patches:
 
 - `0001-revert-tvglines-bezier-precision.patch` (GH-96658)
+- `0002-use-heap-alloc.patch` (GH-109530)
 
 
 ## tinyexr
@@ -1220,8 +1235,8 @@ Files extracted from upstream source:
 
 ## zlib
 
-- Upstream: https://www.zlib.net
-- Version: 1.3.1 (2024)
+- Upstream: https://github.com/madler/zlib
+- Version: 1.3.2 (da607da739fa6047df13e66a2af6b8bec7c2a498, 2026)
 - License: zlib
 
 Files extracted from upstream source:

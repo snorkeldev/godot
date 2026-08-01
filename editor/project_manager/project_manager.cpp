@@ -268,6 +268,7 @@ void ProjectManager::_update_theme(bool p_skip_creation) {
 			erase_btn->set_button_icon(get_editor_theme_icon(SNAME("Remove")));
 			erase_missing_btn->set_button_icon(get_editor_theme_icon(SNAME("Clear")));
 			create_tag_btn->set_button_icon(get_editor_theme_icon("Add"));
+			donate_btn->set_button_icon(get_editor_theme_icon("Heart"));
 
 			tag_error->add_theme_color_override(SceneStringName(font_color), get_theme_color("error_color", EditorStringName(Editor)));
 			tag_edit_error->add_theme_color_override(SceneStringName(font_color), get_theme_color("error_color", EditorStringName(Editor)));
@@ -1014,6 +1015,24 @@ void ProjectManager::_set_new_tag_name(const String p_name) {
 		return;
 	}
 
+	if (p_name[0] == '_' || p_name[p_name.length() - 1] == '_') {
+		tag_error->set_text(TTRC("Tag name can't begin or end with underscore."));
+		return;
+	}
+
+	bool was_underscore = false;
+	for (const char32_t &c : p_name.span()) {
+		if (c == '_') {
+			if (was_underscore) {
+				tag_error->set_text(TTRC("Tag name can't contain consecutive underscores."));
+				return;
+			}
+			was_underscore = true;
+		} else {
+			was_underscore = false;
+		}
+	}
+
 	for (const String &c : forbidden_tag_characters) {
 		if (p_name.contains(c)) {
 			tag_error->set_text(vformat(TTRC("These characters are not allowed in tags: %s."), String(" ").join(forbidden_tag_characters)));
@@ -1248,6 +1267,10 @@ void ProjectManager::_titlebar_resized() {
 	if (title_bar) {
 		title_bar->set_custom_minimum_size(Size2(0, margin.z - title_bar->get_global_position().y));
 	}
+}
+
+void ProjectManager::_open_donate_page() {
+	OS::get_singleton()->shell_open("https://fund.godotengine.org/?ref=project_manager");
 }
 
 // Object methods.
@@ -1560,9 +1583,16 @@ ProjectManager::ProjectManager() {
 
 			project_list_sidebar->add_child(memnew(HSeparator));
 
+			ScrollContainer *sidebar_scroll_containter = memnew(ScrollContainer);
+			sidebar_scroll_containter->set_horizontal_scroll_mode(ScrollContainer::SCROLL_MODE_DISABLED);
+			sidebar_scroll_containter->set_v_size_flags(Control::SIZE_EXPAND_FILL);
+			project_list_sidebar->add_child(sidebar_scroll_containter);
+			VBoxContainer *sidebar_buttons_containter = memnew(VBoxContainer);
+			sidebar_scroll_containter->add_child(sidebar_buttons_containter);
+
 			open_btn_container = memnew(HBoxContainer);
 			open_btn_container->set_anchors_preset(Control::PRESET_FULL_RECT);
-			project_list_sidebar->add_child(open_btn_container);
+			sidebar_buttons_containter->add_child(open_btn_container);
 
 			open_btn = memnew(Button);
 			open_btn->set_text(TTRC("Edit"));
@@ -1591,39 +1621,40 @@ ProjectManager::ProjectManager() {
 			run_btn->set_text(TTRC("Run"));
 			run_btn->set_shortcut(ED_SHORTCUT("project_manager/run_project", TTRC("Run Project"), KeyModifierMask::CMD_OR_CTRL | Key::R));
 			run_btn->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_run_project));
-			project_list_sidebar->add_child(run_btn);
+			sidebar_buttons_containter->add_child(run_btn);
 
 			rename_btn = memnew(Button);
 			rename_btn->set_text(TTRC("Rename"));
 			// The F2 shortcut isn't overridden with Enter on macOS as Enter is already used to edit a project.
 			rename_btn->set_shortcut(ED_SHORTCUT("project_manager/rename_project", TTRC("Rename Project"), Key::F2));
 			rename_btn->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_rename_project));
-			project_list_sidebar->add_child(rename_btn);
+			sidebar_buttons_containter->add_child(rename_btn);
 
 			duplicate_btn = memnew(Button);
 			duplicate_btn->set_text(TTRC("Duplicate"));
 			duplicate_btn->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_duplicate_project));
-			project_list_sidebar->add_child(duplicate_btn);
+			sidebar_buttons_containter->add_child(duplicate_btn);
 
 			manage_tags_btn = memnew(Button);
 			manage_tags_btn->set_text(TTRC("Manage Tags"));
 			manage_tags_btn->set_shortcut(ED_SHORTCUT("project_manager/project_tags", TTRC("Manage Tags"), KeyModifierMask::CMD_OR_CTRL | Key::T));
-			project_list_sidebar->add_child(manage_tags_btn);
+			sidebar_buttons_containter->add_child(manage_tags_btn);
 
 			erase_btn = memnew(Button);
 			erase_btn->set_text(TTRC("Remove"));
 			erase_btn->set_shortcut(ED_SHORTCUT("project_manager/remove_project", TTRC("Remove Project"), Key::KEY_DELETE));
 			erase_btn->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_erase_project));
-			project_list_sidebar->add_child(erase_btn);
-
-			Control *filler = memnew(Control);
-			filler->set_v_size_flags(Control::SIZE_EXPAND_FILL);
-			project_list_sidebar->add_child(filler);
+			sidebar_buttons_containter->add_child(erase_btn);
 
 			erase_missing_btn = memnew(Button);
 			erase_missing_btn->set_text(TTRC("Remove Missing"));
 			erase_missing_btn->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_erase_missing_projects));
-			project_list_sidebar->add_child(erase_missing_btn);
+			sidebar_buttons_containter->add_child(erase_missing_btn);
+
+			donate_btn = memnew(Button);
+			donate_btn->set_text(TTRC("Donate"));
+			donate_btn->connect(SceneStringName(pressed), callable_mp(this, &ProjectManager::_open_donate_page));
+			project_list_sidebar->add_child(donate_btn);
 		}
 	}
 
@@ -1830,6 +1861,8 @@ ProjectManager::ProjectManager() {
 		create_tag_btn->set_accessibility_name(TTRC("Create Tag"));
 		all_tags->add_child(create_tag_btn);
 		create_tag_btn->connect(SceneStringName(pressed), callable_mp((Window *)create_tag_dialog, &Window::popup_centered).bind(Vector2i(500, 0) * EDSCALE));
+
+		_set_new_tag_name("");
 	}
 
 	// Initialize project list.

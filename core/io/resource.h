@@ -92,6 +92,7 @@ private:
 
 	using DuplicateRemapCacheT = HashMap<Ref<Resource>, Ref<Resource>>;
 	static thread_local inline DuplicateRemapCacheT *thread_duplicate_remap_cache = nullptr;
+	static thread_local inline bool thread_duplicate_remap_cache_needs_deallocation = true;
 
 	Variant _duplicate_recursive(const Variant &p_variant, const DuplicateParams &p_params, uint32_t p_usage = 0) const;
 	void _find_sub_resources(const Variant &p_variant, HashSet<Ref<Resource>> &p_resources_found);
@@ -181,8 +182,9 @@ public:
 	virtual RID get_rid() const; // Some resources may offer conversion to RID.
 
 	// Helps keep IDs the same when loading/saving scenes. An empty ID clears the entry, and an empty ID is returned when not found.
-	void set_id_for_path(const String &p_path, const String &p_id);
-	String get_id_for_path(const String &p_path) const;
+	static void set_resource_id_for_path(const String &p_referrer_path, const String &p_resource_path, const String &p_id);
+	void set_id_for_path(const String &p_referrer_path, const String &p_id) { set_resource_id_for_path(p_referrer_path, get_path(), p_id); }
+	String get_id_for_path(const String &p_referrer_path) const;
 
 	Resource();
 	~Resource();

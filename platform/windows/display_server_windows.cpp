@@ -149,8 +149,9 @@ bool DisplayServerWindows::has_feature(Feature p_feature) const {
 		case FEATURE_STATUS_INDICATOR:
 		case FEATURE_WINDOW_EMBEDDING:
 		case FEATURE_WINDOW_DRAG:
-		case FEATURE_SCREEN_EXCLUDE_FROM_CAPTURE:
 			return true;
+		case FEATURE_SCREEN_EXCLUDE_FROM_CAPTURE:
+			return (os_ver.dwBuildNumber >= 19041); // Fully supported on Windows 10 Vibranium R1 (2004)+ only, captured as black rect on older versions.
 		case FEATURE_EMOJI_AND_SYMBOL_PICKER:
 			return (os_ver.dwBuildNumber >= 17134); // Windows 10 Redstone 4 (1803)+ only.
 #ifdef ACCESSKIT_ENABLED
@@ -2468,6 +2469,21 @@ void DisplayServerWindows::window_set_mode(WindowMode p_mode, WindowID p_window)
 		}
 	}
 
+	if ((wd.maximized || wd.was_maximized_pre_fs) && wd.borderless && p_mode != WINDOW_MODE_MINIMIZED && p_mode != WINDOW_MODE_FULLSCREEN && p_mode != WINDOW_MODE_EXCLUSIVE_FULLSCREEN) {
+		RECT rect;
+		if (wd.pre_fs_valid) {
+			rect = wd.pre_fs_rect;
+		} else {
+			rect.left = 0;
+			rect.right = wd.width;
+			rect.top = 0;
+			rect.bottom = wd.height;
+		}
+
+		ShowWindow(wd.hWnd, SW_RESTORE);
+		MoveWindow(wd.hWnd, rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top, TRUE);
+	}
+
 	if (p_mode == WINDOW_MODE_WINDOWED) {
 		ShowWindow(wd.hWnd, SW_NORMAL);
 		wd.maximized = false;
@@ -2481,6 +2497,11 @@ void DisplayServerWindows::window_set_mode(WindowMode p_mode, WindowID p_window)
 	}
 
 	if (p_mode == WINDOW_MODE_MAXIMIZED && wd.borderless) {
+		if (!was_fullscreen && !(wd.maximized && wd.borderless)) {
+			// Save non-fullscreen rect before entering fullscreen.
+			GetWindowRect(wd.hWnd, &wd.pre_fs_rect);
+			wd.pre_fs_valid = true;
+		}
 		ShowWindow(wd.hWnd, SW_NORMAL);
 		wd.maximized = true;
 		wd.minimized = false;
@@ -2514,7 +2535,7 @@ void DisplayServerWindows::window_set_mode(WindowMode p_mode, WindowID p_window)
 		// Save previous maximized stare.
 		wd.was_maximized_pre_fs = wd.maximized;
 
-		if (!was_fullscreen) {
+		if (!was_fullscreen && !(wd.maximized && wd.borderless)) {
 			// Save non-fullscreen rect before entering fullscreen.
 			GetWindowRect(wd.hWnd, &wd.pre_fs_rect);
 			wd.pre_fs_valid = true;
@@ -4255,6 +4276,19 @@ void DisplayServerWindows::window_start_drag(WindowID p_window) {
 	ScreenToClient(wd.hWnd, &coords);
 
 	SendMessage(wd.hWnd, WM_SYSCOMMAND, SC_MOVE | HTCAPTION, MAKELPARAM(coords.x, coords.y));
+
+	for (int btn = (int)MouseButton::LEFT; btn <= (int)MouseButton::MB_XBUTTON2; btn++) {
+		if (Input::get_singleton()->is_mouse_button_pressed(MouseButton(btn))) {
+			Ref<InputEventMouseButton> mb;
+			mb.instantiate();
+			mb->set_window_id(p_window);
+			mb->set_pressed(false);
+			mb->set_button_index(MouseButton::LEFT);
+			mb->set_position(Vector2(coords.x, coords.y));
+			mb->set_global_position(mb->get_position());
+			Input::get_singleton()->parse_input_event(mb);
+		}
+	}
 }
 
 void DisplayServerWindows::window_start_resize(WindowResizeEdge p_edge, WindowID p_window) {
@@ -4305,6 +4339,19 @@ void DisplayServerWindows::window_start_resize(WindowResizeEdge p_edge, WindowID
 	}
 
 	SendMessage(wd.hWnd, WM_SYSCOMMAND, SC_SIZE | op, MAKELPARAM(coords.x, coords.y));
+
+	for (int btn = (int)MouseButton::LEFT; btn <= (int)MouseButton::MB_XBUTTON2; btn++) {
+		if (Input::get_singleton()->is_mouse_button_pressed(MouseButton(btn))) {
+			Ref<InputEventMouseButton> mb;
+			mb.instantiate();
+			mb->set_window_id(p_window);
+			mb->set_pressed(false);
+			mb->set_button_index(MouseButton::LEFT);
+			mb->set_position(Vector2(coords.x, coords.y));
+			mb->set_global_position(mb->get_position());
+			Input::get_singleton()->parse_input_event(mb);
+		}
+	}
 }
 
 void DisplayServerWindows::set_context(Context p_context) {
@@ -4716,9 +4763,12 @@ LRESULT DisplayServerWindows::WndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 			// if the same nIDEvent is passed, the timer is replaced and the same timer_id is returned.
 			// The problem with the timer is that the window cannot be resized or the buttons cannot be used correctly
 			// if the window is not activated first. This happens because the code in the activation process runs
-			// after the mouse click is handled. To address this, the timer is now used only when the window is created.
+			// after the mouse click is handled. To address this, the timer is now used only during the window creation,
+			// and only as part of the activation process. We don't want 'Input::release_pressed_events()'
+			// to be called immediately in '_process_activate_event' when the window is not yet activated,
+			// as it would reset the currently pressed keys when hiding a window, which is incorrect behavior.
 			windows[window_id].activate_state = GET_WM_ACTIVATE_STATE(wParam, lParam);
-			if (windows[window_id].first_activation_done) {
+			if (windows[window_id].first_activation_done && (windows[window_id].activate_state == WA_ACTIVE || windows[window_id].activate_state == WA_CLICKACTIVE)) {
 				_process_activate_event(window_id);
 			} else {
 				windows[window_id].activate_timer_id = SetTimer(windows[window_id].hWnd, DisplayServerWindows::TIMER_ID_WINDOW_ACTIVATION, USER_TIMER_MINIMUM, (TIMERPROC) nullptr);
@@ -7079,6 +7129,7 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Win
 				WARN_PRINT("Your video card drivers seem not to support GLES3 / ANGLE or ANGLE dynamic libraries (libEGL.dll and libGLESv2.dll) are missing, switching to native OpenGL.");
 #endif
 				rendering_driver = "opengl3";
+				OS::get_singleton()->set_current_rendering_driver_name(rendering_driver);
 			} else {
 				r_error = ERR_UNAVAILABLE;
 				ERR_FAIL_MSG("Could not initialize ANGLE OpenGL.");
@@ -7161,10 +7212,8 @@ DisplayServerWindows::DisplayServerWindows(const String &p_rendering_driver, Win
 	}
 
 #ifdef SDL_ENABLED
-	joypad_sdl = memnew(JoypadSDL());
-	if (joypad_sdl->initialize() == OK) {
-		joypad_sdl->setup_sdl_helper_window(windows[MAIN_WINDOW_ID].hWnd);
-	} else {
+	joypad_sdl = memnew(JoypadSDL(windows[MAIN_WINDOW_ID].hWnd));
+	if (joypad_sdl->initialize() != OK) {
 		ERR_PRINT("Couldn't initialize SDL joypad input driver.");
 		memdelete(joypad_sdl);
 		joypad_sdl = nullptr;

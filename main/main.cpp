@@ -633,7 +633,7 @@ void Main::print_help(const char *p_binary) {
 #ifdef DEBUG_ENABLED
 	print_help_option("--gpu-abort", "Abort on graphics API usage errors (usually validation layer errors). May help see the problem if your system freezes.\n", CLI_OPTION_AVAILABILITY_TEMPLATE_DEBUG);
 #endif
-	print_help_option("--generate-spirv-debug-info", "Generate SPIR-V debug information. This allows source-level shader debugging with RenderDoc.\n");
+	print_help_option("--generate-spirv-debug-info", "Generate SPIR-V debug information (Vulkan only). This allows source-level shader debugging with RenderDoc.\n");
 #if defined(DEBUG_ENABLED) || defined(DEV_ENABLED)
 	print_help_option("--extra-gpu-memory-tracking", "Enables additional memory tracking (see class reference for `RenderingDevice.get_driver_and_device_memory_report()` and linked methods). Currently only implemented for Vulkan. Enabling this feature may cause crashes on some systems due to buggy drivers or bugs in the Vulkan Loader. See https://github.com/godotengine/godot/issues/95967\n");
 	print_help_option("--accurate-breadcrumbs", "Force barriers between breadcrumbs. Useful for narrowing down a command causing GPU resets. Currently only implemented for Vulkan.\n");
@@ -1653,6 +1653,9 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 			upwards = true;
 		} else if (arg == "--quit") { // Auto quit at the end of the first main loop iteration
 			quit_after = 1;
+#ifdef TOOLS_ENABLED
+			wait_for_import = true;
+#endif
 		} else if (arg == "--quit-after") { // Quit after the given number of iterations
 			if (N) {
 				quit_after = N->get().to_int();
@@ -1804,7 +1807,7 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		} else if (arg == "--editor-pseudolocalization") {
 			editor_pseudolocalization = true;
 #endif // TOOLS_ENABLED
-		} else if (arg == "--profile-gpu") {
+		} else if (arg == "--gpu-profile") {
 			profile_gpu = true;
 		} else if (arg == "--disable-crash-handler") {
 			OS::get_singleton()->disable_crash_handler();
@@ -2366,6 +2369,34 @@ Error Main::setup(const char *execpath, int argc, char *argv[], bool p_second_ph
 		FORCE_ANGLE("0x8086", "0x193B"); // Intel(R) Iris Pro Graphics 580, Gen9, Skylake
 		FORCE_ANGLE("Intel", "Intel(R) Iris Pro Graphics P580");
 		FORCE_ANGLE("0x8086", "0x193D"); // Intel(R) Iris Pro Graphics P580, Gen9, Skylake
+		FORCE_ANGLE("Intel", "Intel(R) HD Graphics 610");
+		FORCE_ANGLE("0x8086", "0x5902"); // Intel(R) HD Graphics 610, Gen9.5, Kaby Lake
+		FORCE_ANGLE("0x8086", "0x5906");
+		FORCE_ANGLE("0x8086", "0x5908");
+		FORCE_ANGLE("0x8086", "0x590A");
+		FORCE_ANGLE("0x8086", "0x590B");
+		FORCE_ANGLE("0x8086", "0x590E");
+		FORCE_ANGLE("Intel", "Intel(R) HD Graphics 615");
+		FORCE_ANGLE("0x8086", "0x5913"); // Intel(R) HD Graphics 615, Gen9.5, Kaby Lake
+		FORCE_ANGLE("0x8086", "0x5915");
+		FORCE_ANGLE("0x8086", "0x591E");
+		FORCE_ANGLE("Intel", "Intel(R) HD Graphics 620");
+		FORCE_ANGLE("0x8086", "0x5916"); // Intel(R) HD Graphics 620, Gen9.5, Kaby Lake
+		FORCE_ANGLE("0x8086", "0x5917");
+		FORCE_ANGLE("0x8086", "0x5921");
+		FORCE_ANGLE("Intel", "Intel(R) HD Graphics 630");
+		FORCE_ANGLE("0x8086", "0x5912"); // Intel(R) HD Graphics 630, Gen9.5, Kaby Lake
+		FORCE_ANGLE("0x8086", "0x591B");
+		FORCE_ANGLE("Intel", "Intel(R) HD Graphics 635");
+		FORCE_ANGLE("0x8086", "0x5923"); // Intel(R) HD Graphics 635, Gen9.5, Kaby Lake
+		FORCE_ANGLE("Intel", "Intel(R) Iris Plus Graphics 640");
+		FORCE_ANGLE("0x8086", "0x5926"); // Intel(R) Iris Plus Graphics 640, Gen9.5, Kaby Lake
+		FORCE_ANGLE("Intel", "Intel(R) Iris Plus Graphics 650");
+		FORCE_ANGLE("0x8086", "0x5927"); // Iris Plus Graphics 650, Gen9.5, Kaby Lake
+		FORCE_ANGLE("0x8086", "0x593B");
+		FORCE_ANGLE("Intel", "Intel(R) HD Graphics P630");
+		FORCE_ANGLE("0x8086", "0x591A"); // Intel(R) HD Graphics P630, Gen9.5, Kaby Lake
+		FORCE_ANGLE("0x8086", "0x591D");
 
 #undef FORCE_ANGLE
 
@@ -4595,7 +4626,21 @@ int Main::start() {
 	}
 
 	if (movie_writer) {
-		movie_writer->begin(DisplayServer::get_singleton()->window_get_size(), fixed_fps, Engine::get_singleton()->get_write_movie_path());
+		Size2i movie_size = Size2i(GLOBAL_GET("display/window/size/viewport_width"), GLOBAL_GET("display/window/size/viewport_height"));
+		String stretch_mode = GLOBAL_GET("display/window/stretch/mode");
+		if (stretch_mode != "viewport") {
+			// `canvas_items` and `disabled` modes use the window size override instead,
+			// which allows for higher resolution recording with 2D elements designed for a lower resolution.
+			const int window_width_override = GLOBAL_GET("display/window/size/window_width_override");
+			if (window_width_override > 0) {
+				movie_size.width = window_width_override;
+			}
+			const int window_height_override = GLOBAL_GET("display/window/size/window_height_override");
+			if (window_height_override > 0) {
+				movie_size.height = window_height_override;
+			}
+		}
+		movie_writer->begin(movie_size, fixed_fps, Engine::get_singleton()->get_write_movie_path());
 	}
 
 	GDExtensionManager::get_singleton()->startup();

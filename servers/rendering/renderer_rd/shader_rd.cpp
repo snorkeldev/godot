@@ -158,6 +158,8 @@ void ShaderRD::setup(const char *p_vertex_code, const char *p_fragment_code, con
 	tohash.append(p_fragment_code ? p_fragment_code : "");
 	tohash.append("[Compute]");
 	tohash.append(p_compute_code ? p_compute_code : "");
+	tohash.append("[DebugInfo]");
+	tohash.append(Engine::get_singleton()->is_generate_spirv_debug_info_enabled() ? "1" : "0");
 
 	base_sha256 = tohash.as_string().sha256_text();
 }
@@ -262,7 +264,7 @@ void ShaderRD::_build_variant_code(StringBuilder &builder, uint32_t p_variant, c
 }
 
 Vector<String> ShaderRD::_build_variant_stage_sources(uint32_t p_variant, CompileData p_data) {
-	if (!variants_enabled[p_variant] && !variants_bake_for.has(p_variant)) {
+	if (!variants_enabled[p_variant]) {
 		return Vector<String>(); // Variant is disabled, return.
 	}
 
@@ -437,7 +439,7 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, true), FileAccess::READ);
 	}
 
-	if (f.is_null()) {
+	if (f.is_null() && shader_cache_res_dir_valid) {
 		f = FileAccess::open(_get_cache_file_path(p_version, p_group, api_safe_name, false), FileAccess::READ);
 	}
 
@@ -463,12 +465,13 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 	for (uint32_t i = 0; i < variant_count; i++) {
 		int variant_id = group_to_variant_map[p_group][i];
 		uint32_t variant_size = f->get_32();
-		ERR_FAIL_COND_V(variant_size == 0 && variants_enabled[variant_id], false);
-		if (!variants_enabled[variant_id] && !variants_bake_for.has(variant_id)) {
+		if (!variants_enabled[variant_id]) {
 			continue;
 		}
 		if (variant_size == 0) {
-			continue;
+			// A new variant has been requested, failing the entire load will generate it
+			print_verbose(vformat("Shader cache miss for %s due to missing variant %d", name.path_join(group_sha256[p_group]).path_join(_version_get_sha1(p_version)), variant_id));
+			return false;
 		}
 		Vector<uint8_t> variant_bytes;
 		variant_bytes.resize(variant_size);
@@ -482,7 +485,7 @@ bool ShaderRD::_load_from_cache(Version *p_version, int p_group) {
 
 	for (uint32_t i = 0; i < variant_count; i++) {
 		int variant_id = group_to_variant_map[p_group][i];
-		if ((!variants_enabled[variant_id] && !variants_bake_for.has(variant_id)) || p_version->variant_data[variant_id].is_empty()) {
+		if (!variants_enabled[variant_id]) {
 			p_version->variants.write[variant_id] = RID();
 			continue;
 		}
@@ -538,8 +541,10 @@ void ShaderRD::_compile_version_start(Version *p_version, int p_group) {
 	p_version->dirty = false;
 
 #if ENABLE_SHADER_CACHE
-	if (_load_from_cache(p_version, p_group)) {
-		return;
+	if (shader_cache_user_dir_valid || shader_cache_res_dir_valid) {
+		if (_load_from_cache(p_version, p_group)) {
+			return;
+		}
 	}
 #endif
 
@@ -575,7 +580,7 @@ void ShaderRD::_compile_version_end(Version *p_version, int p_group) {
 	if (!all_valid) {
 		// Clear versions if they exist.
 		for (int i = 0; i < variant_defines.size(); i++) {
-			if ((!variants_enabled[i] && !variants_bake_for.has(i)) || !group_enabled[variant_defines[i].group]) {
+			if (!variants_enabled[i] || !group_enabled[variant_defines[i].group]) {
 				continue; // Disabled.
 			}
 			if (!p_version->variants[i].is_null()) {
@@ -822,6 +827,7 @@ void ShaderRD::initialize(const Vector<String> &p_variant_defines, const String 
 
 void ShaderRD::_initialize_cache() {
 	shader_cache_user_dir_valid = !shader_cache_user_dir.is_empty();
+	shader_cache_res_dir_valid = !shader_cache_res_dir.is_empty();
 	if (!shader_cache_user_dir_valid) {
 		return;
 	}

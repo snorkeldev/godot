@@ -109,6 +109,9 @@ public:
 #endif
 
 #define WRITE_ACTION redraw_request();
+#define ASYNC_COND_PUSH (Thread::get_caller_id() != server_thread)
+#define ASYNC_COND_PUSH_AND_RET (Thread::get_caller_id() != server_thread)
+#define ASYNC_COND_PUSH_AND_SYNC (Thread::get_caller_id() != server_thread)
 
 #ifdef DEBUG_SYNC
 #define SYNC_DEBUG print_line("sync on: " + String(__FUNCTION__));
@@ -260,8 +263,8 @@ public:
 			}
 
 			RSG::material_storage->shader_initialize(shader, false);
-			RSG::material_storage->shader_set_code(shader, p_code);
 			RSG::material_storage->shader_set_path_hint(shader, p_path_hint);
+			RSG::material_storage->shader_set_code(shader, p_code);
 		} else {
 			command_queue.push(RSG::material_storage, &RendererMaterialStorage::shader_initialize, shader, false);
 			command_queue.push(RSG::material_storage, &RendererMaterialStorage::shader_set_code, shader, p_code);

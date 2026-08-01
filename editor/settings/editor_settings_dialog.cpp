@@ -62,9 +62,7 @@ void EditorSettingsDialog::ok_pressed() {
 }
 
 void EditorSettingsDialog::_settings_changed() {
-	if (is_visible()) {
-		timer->start();
-	}
+	timer->start();
 }
 
 void EditorSettingsDialog::_settings_property_edited(const String &p_name) {
@@ -196,7 +194,7 @@ void EditorSettingsDialog::popup_edit_settings() {
 		return;
 	}
 
-	EditorSettings::get_singleton()->list_text_editor_themes(); // make sure we have an up to date list of themes
+	EditorSettings::get_singleton()->update_text_editor_themes_list(); // Make sure we have an up to date list of themes.
 
 	_update_dynamic_property_hints();
 

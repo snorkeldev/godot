@@ -282,7 +282,7 @@ static const char *APK_ASSETS_DIRECTORY = "assets";
 static const char *AAB_ASSETS_DIRECTORY = "assetPackInstallTime/src/main/assets";
 
 static const int DEFAULT_MIN_SDK_VERSION = 24; // Should match the value in 'platform/android/java/app/config.gradle#minSdk'
-static const int DEFAULT_TARGET_SDK_VERSION = 35; // Should match the value in 'platform/android/java/app/config.gradle#targetSdk'
+static const int DEFAULT_TARGET_SDK_VERSION = 36; // Should match the value in 'platform/android/java/app/config.gradle#targetSdk'
 
 #ifndef ANDROID_ENABLED
 void EditorExportPlatformAndroid::_check_for_changes_poll_thread(void *ud) {
@@ -1050,7 +1050,7 @@ void EditorExportPlatformAndroid::_write_tmp_manifest(const Ref<EditorExportPres
 	store_string_at_path(manifest_path, manifest_text);
 }
 
-bool EditorExportPlatformAndroid::_should_be_transparent(const Ref<EditorExportPreset> &p_preset) const {
+bool EditorExportPlatformAndroid::_is_transparency_allowed(const Ref<EditorExportPreset> &p_preset) const {
 	return (bool)get_project_setting(p_preset, "display/window/per_pixel_transparency/allowed");
 }
 
@@ -1062,21 +1062,23 @@ void EditorExportPlatformAndroid::_fix_themes_xml(const Ref<EditorExportPreset> 
 		return;
 	}
 
-	bool should_be_transparent = _should_be_transparent(p_preset);
+	bool transparency_allowed = _is_transparency_allowed(p_preset);
 
 	// Default/Reserved theme attributes.
 	Dictionary main_theme_attributes;
 	main_theme_attributes["android:windowSwipeToDismiss"] = bool_to_string(p_preset->get("gesture/swipe_to_dismiss"));
-	main_theme_attributes["android:windowIsTranslucent"] = bool_to_string(should_be_transparent);
-	if (should_be_transparent) {
+	main_theme_attributes["android:windowIsTranslucent"] = bool_to_string(transparency_allowed);
+	if (transparency_allowed) {
 		main_theme_attributes["android:windowBackground"] = "@android:color/transparent";
+	} else {
+		main_theme_attributes["android:windowBackground"] = "#" + p_preset->get("screen/background_color").operator Color().to_html(false);
 	}
 
 	Dictionary splash_theme_attributes;
 	splash_theme_attributes["android:windowSplashScreenBackground"] = "@mipmap/icon_background";
 	splash_theme_attributes["windowSplashScreenAnimatedIcon"] = "@mipmap/icon_foreground";
 	splash_theme_attributes["postSplashScreenTheme"] = "@style/GodotAppMainTheme";
-	splash_theme_attributes["android:windowIsTranslucent"] = bool_to_string(should_be_transparent);
+	splash_theme_attributes["android:windowIsTranslucent"] = bool_to_string(transparency_allowed);
 
 	PackedStringArray reserved_splash_keys;
 	reserved_splash_keys.append("postSplashScreenTheme");
@@ -1993,7 +1995,8 @@ void EditorExportPlatformAndroid::get_preset_features(const Ref<EditorExportPres
 	r_features->push_back("etc2");
 	r_features->push_back("astc");
 
-	if (p_preset->get("shader_baker/enabled")) {
+	if (!p_preset->is_dedicated_server() && p_preset->get("shader_baker/enabled")) {
+		// Don't use the shader baker if exporting as a dedicated server, as no rendering is performed.
 		r_features->push_back("shader_baker");
 	}
 
@@ -2028,6 +2031,11 @@ String EditorExportPlatformAndroid::get_export_option_warning(const EditorExport
 			String enabled_deprecated_plugins_names = _get_deprecated_plugins_names(Ref<EditorExportPreset>(p_preset));
 			if (!enabled_deprecated_plugins_names.is_empty() && !gradle_build_enabled) {
 				return TTR("\"Use Gradle Build\" must be enabled to use the plugins.");
+			}
+		} else if (p_name == "gradle_build/compress_native_libraries") {
+			bool gradle_build_enabled = p_preset->get("gradle_build/use_gradle_build");
+			if (bool(p_preset->get("gradle_build/compress_native_libraries")) && !gradle_build_enabled) {
+				return TTR("\"Compress Native Libraries\" is only valid when \"Use Gradle Build\" is enabled.");
 			}
 		} else if (p_name == "gradle_build/export_format") {
 			bool gradle_build_enabled = p_preset->get("gradle_build/use_gradle_build");
@@ -2112,6 +2120,7 @@ void EditorExportPlatformAndroid::get_export_options(List<ExportOption> *r_optio
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "gradle_build/use_gradle_build"), false, true, true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "gradle_build/gradle_build_directory", PROPERTY_HINT_PLACEHOLDER_TEXT, "res://android"), "", false, false));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::STRING, "gradle_build/android_source_template", PROPERTY_HINT_GLOBAL_FILE, "*.zip"), ""));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "gradle_build/compress_native_libraries"), false, false, true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::INT, "gradle_build/export_format", PROPERTY_HINT_ENUM, "Export APK,Export AAB"), EXPORT_FORMAT_APK, false, true));
 	// Using String instead of int to default to an empty string (no override) with placeholder for instructions (see GH-62465).
 	// This implies doing validation that the string is a proper int.
@@ -2174,11 +2183,12 @@ void EditorExportPlatformAndroid::get_export_options(List<ExportOption> *r_optio
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "gesture/swipe_to_dismiss"), false));
 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/immersive_mode"), true));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/edge_to_edge"), false));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_small"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_normal"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_large"), true));
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/support_xlarge"), true));
-	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "screen/edge_to_edge"), false));
+	r_options->push_back(ExportOption(PropertyInfo(Variant::COLOR, "screen/background_color", PROPERTY_HINT_COLOR_NO_ALPHA), Color()));
 
 	r_options->push_back(ExportOption(PropertyInfo(Variant::BOOL, "user_data_backup/allow"), false));
 
@@ -2487,7 +2497,7 @@ Error EditorExportPlatformAndroid::run(const Ref<EditorExportPreset> &p_preset, 
 	print_verbose(output);
 	if (err || rv != 0 || output.contains("Error: Activity not started")) {
 		// The implicit launch failed, let's try an explicit launch by specifying the component name before giving up.
-		const String component_name = get_package_name(p_preset, package_name) + "/com.godot.game.GodotApp";
+		const String component_name = get_package_name(p_preset, package_name) + "/com.godot.game.GodotAppLauncher";
 		print_line("Implicit launch failed.. Trying explicit launch using", component_name);
 		args.erase(get_package_name(p_preset, package_name));
 		args.push_back("-n");
@@ -2730,6 +2740,7 @@ bool _validate_dotnet_tfm(const String &required_tfm, String &r_error) {
 		List<String> args;
 		args.push_back("build");
 		args.push_back(project_path);
+		args.push_back("/p:GodotTargetPlatform=android");
 		args.push_back("--getProperty:TargetFramework");
 
 		int exitcode;
@@ -2769,9 +2780,9 @@ bool EditorExportPlatformAndroid::has_valid_export_configuration(const Ref<Edito
 	err += TTR("Exporting to Android when using C#/.NET is experimental.") + "\n";
 
 	if (!gradle_build_enabled) {
-		// For template exports we only support .NET 8 because the template
-		// includes .jar dependencies that may only be compatible with .NET 8.
-		if (!_validate_dotnet_tfm("net8.0", err)) {
+		// For template exports we only support .NET 9 because the template
+		// includes .jar dependencies that may only be compatible with .NET 9.
+		if (!_validate_dotnet_tfm("net9.0", err)) {
 			r_error = err;
 			return false;
 		}
@@ -2843,36 +2854,38 @@ bool EditorExportPlatformAndroid::has_valid_export_configuration(const Ref<Edito
 
 	// Validate the rest of the export configuration.
 
-	String dk = _get_keystore_path(p_preset, true);
-	String dk_user = p_preset->get_or_env("keystore/debug_user", ENV_ANDROID_KEYSTORE_DEBUG_USER);
-	String dk_password = p_preset->get_or_env("keystore/debug_password", ENV_ANDROID_KEYSTORE_DEBUG_PASS);
+	if (p_debug) {
+		String dk = _get_keystore_path(p_preset, true);
+		String dk_user = p_preset->get_or_env("keystore/debug_user", ENV_ANDROID_KEYSTORE_DEBUG_USER);
+		String dk_password = p_preset->get_or_env("keystore/debug_password", ENV_ANDROID_KEYSTORE_DEBUG_PASS);
 
-	if ((dk.is_empty() || dk_user.is_empty() || dk_password.is_empty()) && (!dk.is_empty() || !dk_user.is_empty() || !dk_password.is_empty())) {
-		valid = false;
-		err += TTR("Either Debug Keystore, Debug User AND Debug Password settings must be configured OR none of them.") + "\n";
-	}
-
-	// Use OR to make the export UI able to show this error.
-	if ((p_debug || !dk.is_empty()) && !FileAccess::exists(dk)) {
-		dk = EDITOR_GET("export/android/debug_keystore");
-		if (!FileAccess::exists(dk)) {
+		if ((dk.is_empty() || dk_user.is_empty() || dk_password.is_empty()) && (!dk.is_empty() || !dk_user.is_empty() || !dk_password.is_empty())) {
 			valid = false;
-			err += TTR("Debug keystore not configured in the Editor Settings nor in the preset.") + "\n";
+			err += TTR("Either Debug Keystore, Debug User AND Debug Password settings must be configured OR none of them.") + "\n";
 		}
-	}
 
-	String rk = _get_keystore_path(p_preset, false);
-	String rk_user = p_preset->get_or_env("keystore/release_user", ENV_ANDROID_KEYSTORE_RELEASE_USER);
-	String rk_password = p_preset->get_or_env("keystore/release_password", ENV_ANDROID_KEYSTORE_RELEASE_PASS);
+		// Use OR to make the export UI able to show this error.
+		if (!dk.is_empty() && !FileAccess::exists(dk)) {
+			dk = EDITOR_GET("export/android/debug_keystore");
+			if (!FileAccess::exists(dk)) {
+				valid = false;
+				err += TTR("Debug keystore not configured in the Editor Settings nor in the preset.") + "\n";
+			}
+		}
+	} else {
+		String rk = _get_keystore_path(p_preset, false);
+		String rk_user = p_preset->get_or_env("keystore/release_user", ENV_ANDROID_KEYSTORE_RELEASE_USER);
+		String rk_password = p_preset->get_or_env("keystore/release_password", ENV_ANDROID_KEYSTORE_RELEASE_PASS);
 
-	if ((rk.is_empty() || rk_user.is_empty() || rk_password.is_empty()) && (!rk.is_empty() || !rk_user.is_empty() || !rk_password.is_empty())) {
-		valid = false;
-		err += TTR("Either Release Keystore, Release User AND Release Password settings must be configured OR none of them.") + "\n";
-	}
+		if ((rk.is_empty() || rk_user.is_empty() || rk_password.is_empty()) && (!rk.is_empty() || !rk_user.is_empty() || !rk_password.is_empty())) {
+			valid = false;
+			err += TTR("Either Release Keystore, Release User AND Release Password settings must be configured OR none of them.") + "\n";
+		}
 
-	if (!p_debug && !rk.is_empty() && !FileAccess::exists(rk)) {
-		valid = false;
-		err += TTR("Release keystore incorrectly configured in the export preset.") + "\n";
+		if (!rk.is_empty() && !FileAccess::exists(rk)) {
+			valid = false;
+			err += TTR("Release keystore incorrectly configured in the export preset.") + "\n";
+		}
 	}
 
 #ifndef ANDROID_ENABLED
@@ -2992,7 +3005,7 @@ bool EditorExportPlatformAndroid::has_valid_project_configuration(const Ref<Edit
 			}
 		}
 	} else {
-		if (_should_be_transparent(p_preset)) {
+		if (_is_transparency_allowed(p_preset)) {
 			// Warning only, so don't override `valid`.
 			err += vformat(TTR("\"Use Gradle Build\" is required for transparent background on Android"));
 			err += "\n";
@@ -3098,6 +3111,16 @@ void EditorExportPlatformAndroid::get_command_line_flags(const Ref<EditorExportP
 	if (edge_to_edge) {
 		command_line_strings.push_back("--edge_to_edge");
 	}
+
+	String background_color = "#" + p_preset->get("screen/background_color").operator Color().to_html(false);
+
+	// For Gradle build, _fix_themes_xml() sets background to transparent if _is_transparency_allowed().
+	// Overriding to transparent here too as it's used as fallback for system bar appearance.
+	if (_is_transparency_allowed(p_preset) && p_preset->get("gradle_build/use_gradle_build")) {
+		background_color = "#00000000";
+	}
+	command_line_strings.push_back("--background_color");
+	command_line_strings.push_back(background_color);
 
 	bool debug_opengl = p_preset->get("graphics/opengl_debug");
 	if (debug_opengl) {
@@ -3678,8 +3701,9 @@ Error EditorExportPlatformAndroid::export_project_helper(const Ref<EditorExportP
 			target_sdk_version = itos(DEFAULT_TARGET_SDK_VERSION);
 		}
 		String enabled_abi_string = join_abis(enabled_abis, "|", false);
-		String sign_flag = should_sign ? "true" : "false";
+		String sign_flag = bool_to_string(should_sign);
 		String zipalign_flag = "true";
+		String compress_native_libraries_flag = bool_to_string(p_preset->get("gradle_build/compress_native_libraries"));
 
 		Vector<String> android_libraries;
 		Vector<String> android_dependencies;
@@ -3731,7 +3755,7 @@ Error EditorExportPlatformAndroid::export_project_helper(const Ref<EditorExportP
 		String edition = has_dotnet_project ? "Mono" : "Standard";
 		String build_type = p_debug ? "Debug" : "Release";
 		if (export_format == EXPORT_FORMAT_AAB) {
-			String bundle_build_command = vformat("bundle%s", build_type);
+			String bundle_build_command = vformat("bundle%s%s", edition, build_type);
 			cmdline.push_back(bundle_build_command);
 		} else if (export_format == EXPORT_FORMAT_APK) {
 			String apk_build_command = vformat("assemble%s%s", edition, build_type);
@@ -3754,6 +3778,7 @@ Error EditorExportPlatformAndroid::export_project_helper(const Ref<EditorExportP
 		cmdline.push_back("-Pplugins_maven_repos=" + combined_android_dependencies_maven_repos); // argument to specify the list of maven repos for android dependencies provided by plugins.
 		cmdline.push_back("-Pperform_zipalign=" + zipalign_flag); // argument to specify whether the build should be zipaligned.
 		cmdline.push_back("-Pperform_signing=" + sign_flag); // argument to specify whether the build should be signed.
+		cmdline.push_back("-Pcompress_native_libraries=" + compress_native_libraries_flag); // argument to specify whether the build should compress native libraries.
 
 		// NOTE: The release keystore is not included in the verbose logging
 		// to avoid accidentally leaking sensitive information when sharing verbose logs for troubleshooting.

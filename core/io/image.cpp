@@ -801,13 +801,13 @@ static void _scale_cubic(const uint8_t *__restrict p_src, uint8_t *__restrict p_
 
 	for (uint32_t y = 0; y < p_dst_height; y++) {
 		// Y coordinates
-		oy = (double)y * yfac - 0.5f;
+		oy = (double)(y + 0.5) * yfac - 0.5;
 		oy1 = (int)oy;
 		dy = oy - (double)oy1;
 
 		for (uint32_t x = 0; x < p_dst_width; x++) {
 			// X coordinates
-			ox = (double)x * xfac - 0.5f;
+			ox = (double)(x + 0.5) * xfac - 0.5;
 			ox1 = (int)ox;
 			dx = ox - (double)ox1;
 
@@ -815,10 +815,7 @@ static void _scale_cubic(const uint8_t *__restrict p_src, uint8_t *__restrict p_
 
 			T *__restrict dst = ((T *)p_dst) + (y * p_dst_width + x) * CC;
 
-			double color[CC];
-			for (int i = 0; i < CC; i++) {
-				color[i] = 0;
-			}
+			double color[CC] = {};
 
 			for (int n = -1; n < 3; n++) {
 				// get Y coefficient
@@ -961,11 +958,11 @@ static void _scale_bilinear(const uint8_t *__restrict p_src, uint8_t *__restrict
 template <int CC, typename T>
 static void _scale_nearest(const uint8_t *__restrict p_src, uint8_t *__restrict p_dst, uint32_t p_src_width, uint32_t p_src_height, uint32_t p_dst_width, uint32_t p_dst_height) {
 	for (uint32_t i = 0; i < p_dst_height; i++) {
-		uint32_t src_yofs = i * p_src_height / p_dst_height;
+		uint32_t src_yofs = (i + 0.5) * p_src_height / p_dst_height;
 		uint32_t y_ofs = src_yofs * p_src_width * CC;
 
 		for (uint32_t j = 0; j < p_dst_width; j++) {
-			uint32_t src_xofs = j * p_src_width / p_dst_width;
+			uint32_t src_xofs = (j + 0.5) * p_src_width / p_dst_width;
 			src_xofs *= CC;
 
 			for (uint32_t l = 0; l < CC; l++) {
@@ -2360,6 +2357,12 @@ void Image::initialize_data(const char **p_xpm) {
 			} break;
 			case READING_PIXELS: {
 				int y = line - colormap_size - 1;
+#ifdef __MINGW32__
+				// False positive only with MinGW-GCC. Don't silence for regular GCC/Clang
+				// as this is code that _could_ exhibit actual overflow bugs.
+				GODOT_GCC_WARNING_PUSH
+				GODOT_GCC_PRAGMA(GCC diagnostic warning "-Wstringop-overflow=0")
+#endif
 				for (int x = 0; x < size_width; x++) {
 					char pixelstr[6] = { 0, 0, 0, 0, 0, 0 };
 					for (int i = 0; i < pixelchars; i++) {
@@ -2374,6 +2377,9 @@ void Image::initialize_data(const char **p_xpm) {
 					}
 					_put_pixelb(x, y, pixel_size, data_write, pixel);
 				}
+#ifdef __MINGW32__
+				GODOT_GCC_WARNING_POP
+#endif
 
 				if (y == (size_height - 1)) {
 					status = DONE;
@@ -3203,9 +3209,9 @@ Color Image::_get_color_at_ofs(const uint8_t *ptr, uint32_t ofs) const {
 		}
 		case FORMAT_RGB565: {
 			uint16_t u = ((uint16_t *)ptr)[ofs];
-			float r = (u & 0x1F) / 31.0;
+			float r = ((u >> 11) & 0x1F) / 31.0;
 			float g = ((u >> 5) & 0x3F) / 63.0;
-			float b = ((u >> 11) & 0x1F) / 31.0;
+			float b = (u & 0x1F) / 31.0;
 			return Color(r, g, b, 1.0);
 		}
 		case FORMAT_RF: {
@@ -3302,9 +3308,9 @@ void Image::_set_color_at_ofs(uint8_t *ptr, uint32_t ofs, const Color &p_color) 
 		case FORMAT_RGB565: {
 			uint16_t rgba = 0;
 
-			rgba = uint16_t(CLAMP(p_color.r * 31.0, 0, 31));
+			rgba = uint16_t(CLAMP(p_color.r * 31.0, 0, 31)) << 11;
 			rgba |= uint16_t(CLAMP(p_color.g * 63.0, 0, 63)) << 5;
-			rgba |= uint16_t(CLAMP(p_color.b * 31.0, 0, 31)) << 11;
+			rgba |= uint16_t(CLAMP(p_color.b * 31.0, 0, 31));
 
 			((uint16_t *)ptr)[ofs] = rgba;
 		} break;
@@ -4224,14 +4230,18 @@ void Image::renormalize_uint8(uint8_t *p_rgb) {
 	n += Vector3(1, 1, 1);
 	n *= 0.5;
 	n *= 255;
-	p_rgb[0] = CLAMP(int(n.x), 0, 255);
-	p_rgb[1] = CLAMP(int(n.y), 0, 255);
-	p_rgb[2] = CLAMP(int(n.z), 0, 255);
+	p_rgb[0] = CLAMP(int(Math::round(n.x)), 0, 255);
+	p_rgb[1] = CLAMP(int(Math::round(n.y)), 0, 255);
+	p_rgb[2] = CLAMP(int(Math::round(n.z)), 0, 255);
 }
 
 void Image::renormalize_float(float *p_rgb) {
 	Vector3 n(p_rgb[0], p_rgb[1], p_rgb[2]);
+	n *= 2.0;
+	n -= Vector3(1, 1, 1);
 	n.normalize();
+	n += Vector3(1, 1, 1);
+	n *= 0.5;
 	p_rgb[0] = n.x;
 	p_rgb[1] = n.y;
 	p_rgb[2] = n.z;
@@ -4239,7 +4249,11 @@ void Image::renormalize_float(float *p_rgb) {
 
 void Image::renormalize_half(uint16_t *p_rgb) {
 	Vector3 n(Math::half_to_float(p_rgb[0]), Math::half_to_float(p_rgb[1]), Math::half_to_float(p_rgb[2]));
+	n *= 2.0;
+	n -= Vector3(1, 1, 1);
 	n.normalize();
+	n += Vector3(1, 1, 1);
+	n *= 0.5;
 	p_rgb[0] = Math::make_half_float(n.x);
 	p_rgb[1] = Math::make_half_float(n.y);
 	p_rgb[2] = Math::make_half_float(n.z);

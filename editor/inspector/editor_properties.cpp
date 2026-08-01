@@ -177,7 +177,11 @@ void EditorPropertyText::_text_changed(const String &p_string) {
 
 	// Set tooltip so that the full text is displayed in a tooltip if hovered.
 	// This is useful when using a narrow inspector, as the text can be trimmed otherwise.
-	text->set_tooltip_text(get_tooltip_string(text->get_text()));
+	if (text->is_secret()) {
+		text->set_tooltip_text(get_tooltip_string(text->get_placeholder()));
+	} else {
+		text->set_tooltip_text(get_tooltip_string(text->get_text()));
+	}
 
 	if (string_name) {
 		emit_changed(get_edited_property(), StringName(p_string));
@@ -192,7 +196,11 @@ void EditorPropertyText::update_property() {
 	if (text->get_text() != s) {
 		int caret = text->get_caret_column();
 		text->set_text(s);
-		text->set_tooltip_text(get_tooltip_string(s));
+		if (text->is_secret()) {
+			text->set_tooltip_text(get_tooltip_string(text->get_placeholder()));
+		} else {
+			text->set_tooltip_text(get_tooltip_string(s));
+		}
 		text->set_caret_column(caret);
 	}
 	text->set_editable(!is_read_only());
@@ -931,6 +939,7 @@ void EditorPropertyFlags::setup(const Vector<String> &p_options) {
 
 EditorPropertyFlags::EditorPropertyFlags() {
 	vbox = memnew(VBoxContainer);
+	vbox->set_auto_translate_mode(AUTO_TRANSLATE_MODE_DISABLED);
 	add_child(vbox);
 }
 
@@ -1674,7 +1683,6 @@ void EditorPropertyEasing::_drag_easing(const Ref<InputEvent> &p_ev) {
 		val = CLAMP(val, -1'000'000, 1'000'000);
 
 		emit_changed(get_edited_property(), val);
-		easing_draw->queue_redraw();
 	}
 }
 
@@ -1726,6 +1734,9 @@ void EditorPropertyEasing::_draw_easing() {
 }
 
 void EditorPropertyEasing::update_property() {
+	float val = get_edited_property_value();
+	spin->set_value_no_signal(val);
+
 	easing_draw->queue_redraw();
 }
 
@@ -1733,7 +1744,6 @@ void EditorPropertyEasing::_set_preset(int p_preset) {
 	static const float preset_value[EASING_MAX] = { 0.0, 1.0, 2.0, 0.5, -2.0, -0.5 };
 
 	emit_changed(get_edited_property(), preset_value[p_preset]);
-	easing_draw->queue_redraw();
 }
 
 void EditorPropertyEasing::_setup_spin() {
@@ -1743,12 +1753,6 @@ void EditorPropertyEasing::_setup_spin() {
 }
 
 void EditorPropertyEasing::_spin_value_changed(double p_value) {
-	// 0 is a singularity, but both positive and negative values
-	// are otherwise allowed. Enforce 0+ as workaround.
-	if (Math::is_zero_approx(p_value)) {
-		p_value = 0.00001;
-	}
-
 	// Limit to a reasonable value to prevent the curve going into infinity,
 	// which can cause crashes and other issues.
 	p_value = CLAMP(p_value, -1'000'000, 1'000'000);
@@ -3590,8 +3594,8 @@ bool EditorInspectorDefaultPlugin::parse_property(Object *p_object, const Varian
 struct EditorPropertyRangeHint {
 	bool or_greater = true;
 	bool or_less = true;
-	double min = -99999.0;
-	double max = 99999.0;
+	double min = 0.0;
+	double max = 0.0;
 	double step = 1.0;
 	String suffix;
 	bool exp_range = false;

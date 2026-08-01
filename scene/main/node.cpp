@@ -68,7 +68,7 @@ void Node::_notification(int p_notification) {
 				for (int i = 0; i < get_child_count(); i++) {
 					Node *child_node = get_child(i);
 					Window *child_wnd = Object::cast_to<Window>(child_node);
-					if (child_wnd && !child_wnd->is_embedded()) {
+					if (child_wnd && !(child_wnd->is_visible() && (child_wnd->is_embedded() || child_wnd->is_popup()))) {
 						continue;
 					}
 					if (child_node->is_part_of_edited_scene()) {
@@ -1416,20 +1416,21 @@ void Node::_set_name_nocheck(const StringName &p_name) {
 
 void Node::set_name(const StringName &p_name) {
 	ERR_FAIL_COND_MSG(data.tree && !Thread::is_main_thread(), "Changing the name to nodes inside the SceneTree is only allowed from the main thread. Use `set_name.call_deferred(new_name)`.");
+	ERR_FAIL_COND(p_name.is_empty());
+
 	const StringName old_name = data.name;
+	if (data.unique_name_in_owner && data.owner) {
+		_release_unique_name_in_owner();
+	}
+
 	{
 		const String input_name_str = String(p_name);
-		ERR_FAIL_COND(input_name_str.is_empty());
 		const String validated_node_name_string = input_name_str.validate_node_name();
 		if (input_name_str == validated_node_name_string) {
 			data.name = p_name;
 		} else {
 			data.name = StringName(validated_node_name_string);
 		}
-	}
-
-	if (data.unique_name_in_owner && data.owner) {
-		_release_unique_name_in_owner();
 	}
 
 	if (data.parent) {
@@ -2052,6 +2053,14 @@ Window *Node::get_window() const {
 		return vp->get_base_window();
 	}
 	return nullptr;
+}
+
+Window *Node::get_non_popup_window() const {
+	Window *w = get_window();
+	while (w && w->is_popup()) {
+		w = w->get_parent_visible_window();
+	}
+	return w;
 }
 
 Window *Node::get_last_exclusive_window() const {
@@ -2905,6 +2914,10 @@ Node *Node::duplicate(int p_flags) const {
 
 	ERR_FAIL_NULL_V_MSG(dupe, nullptr, "Failed to duplicate node.");
 
+	if (p_flags & DUPLICATE_SCRIPTS) {
+		_duplicate_scripts(this, dupe);
+	}
+
 	_duplicate_properties(this, this, dupe, p_flags);
 
 	if (p_flags & DUPLICATE_SIGNALS) {
@@ -2924,6 +2937,10 @@ Node *Node::duplicate_from_editor(HashMap<const Node *, Node *> &r_duplimap, con
 	Node *dupe = _duplicate(flags, &r_duplimap);
 
 	ERR_FAIL_NULL_V_MSG(dupe, nullptr, "Failed to duplicate node.");
+
+	if (flags & DUPLICATE_SCRIPTS) {
+		_duplicate_scripts(this, dupe);
+	}
 
 	_duplicate_properties(this, this, dupe, flags);
 
@@ -2997,6 +3014,20 @@ void Node::_emit_editor_state_changed() {
 }
 #endif
 
+void Node::_duplicate_scripts(const Node *p_original, Node *p_copy) const {
+	bool is_valid = false;
+	Variant scr = p_original->get(CoreStringName(script), &is_valid);
+	if (is_valid) {
+		p_copy->set(CoreStringName(script), scr);
+	}
+
+	for (int i = 0; i < p_original->get_child_count(false); i++) {
+		Node *copy_child = p_copy->get_child(i, false);
+		ERR_FAIL_NULL_MSG(copy_child, "Child node disappeared while duplicating.");
+		_duplicate_scripts(p_original->get_child(i, false), copy_child);
+	}
+}
+
 // Duplicate node's properties.
 // This has to be called after nodes have been duplicated since there might be properties
 // of type Node that can be updated properly only if duplicated node tree is complete.
@@ -3004,13 +3035,6 @@ void Node::_duplicate_properties(const Node *p_root, const Node *p_original, Nod
 	List<PropertyInfo> props;
 	p_original->get_property_list(&props);
 	const StringName &script_property_name = CoreStringName(script);
-	if (p_flags & DUPLICATE_SCRIPTS) {
-		bool is_valid = false;
-		Variant scr = p_original->get(script_property_name, &is_valid);
-		if (is_valid) {
-			p_copy->set(script_property_name, scr);
-		}
-	}
 	for (const PropertyInfo &E : props) {
 		if (!(E.usage & PROPERTY_USAGE_STORAGE)) {
 			continue;
@@ -3686,8 +3710,9 @@ RID Node::get_accessibility_element() const {
 		return RID();
 	}
 	if (unlikely(data.accessibility_element.is_null())) {
-		if (get_window() && get_window()->get_window_id() != DisplayServer::INVALID_WINDOW_ID) {
-			data.accessibility_element = DisplayServer::get_singleton()->accessibility_create_element(get_window()->get_window_id(), DisplayServer::ROLE_CONTAINER);
+		Window *w = get_non_popup_window();
+		if (w && w->get_window_id() != DisplayServer::INVALID_WINDOW_ID && get_window()->is_visible()) {
+			data.accessibility_element = DisplayServer::get_singleton()->accessibility_create_element(w->get_window_id(), DisplayServer::ROLE_CONTAINER);
 		}
 	}
 	return data.accessibility_element;

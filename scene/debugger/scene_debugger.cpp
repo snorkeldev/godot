@@ -167,6 +167,26 @@ Error SceneDebugger::_msg_inspect_objects(const Array &p_args) {
 	return OK;
 }
 
+#ifndef DISABLE_DEPRECATED
+Error SceneDebugger::_msg_inspect_object(const Array &p_args) {
+	ERR_FAIL_COND_V(p_args.is_empty(), ERR_INVALID_DATA);
+	// Legacy compatibility: convert single object ID to new format, then send single object response.
+	Vector<ObjectID> ids;
+	ids.append(ObjectID(p_args[0].operator uint64_t()));
+
+	SceneDebuggerObject obj(ids[0]);
+	if (obj.id.is_null()) {
+		EngineDebugger::get_singleton()->send_message("scene:inspect_object", Array());
+		return OK;
+	}
+
+	Array arr;
+	obj.serialize(arr);
+	EngineDebugger::get_singleton()->send_message("scene:inspect_object", arr);
+	return OK;
+}
+#endif // DISABLE_DEPRECATED
+
 Error SceneDebugger::_msg_clear_selection(const Array &p_args) {
 	RuntimeNodeSelect::get_singleton()->_clear_selection();
 	return OK;
@@ -496,6 +516,9 @@ void SceneDebugger::_init_message_handlers() {
 	message_handlers["request_scene_tree"] = _msg_request_scene_tree;
 	message_handlers["save_node"] = _msg_save_node;
 	message_handlers["inspect_objects"] = _msg_inspect_objects;
+#ifndef DISABLE_DEPRECATED
+	message_handlers["inspect_object"] = _msg_inspect_object;
+#endif // DISABLE_DEPRECATED
 	message_handlers["clear_selection"] = _msg_clear_selection;
 	message_handlers["suspend_changed"] = _msg_suspend_changed;
 	message_handlers["next_frame"] = _msg_next_frame;
@@ -1922,18 +1945,6 @@ void RuntimeNodeSelect::_send_ids(const Vector<Node *> &p_picked_nodes, bool p_i
 		return;
 	}
 
-	int limit = max_selection - selected_ci_nodes.size();
-#ifndef _3D_DISABLED
-	limit -= selected_3d_nodes.size();
-#endif // _3D_DISABLED
-	if (limit <= 0) {
-		return;
-	}
-	if (picked_nodes.size() > limit) {
-		picked_nodes.resize(limit);
-		EngineDebugger::get_singleton()->send_message("show_selection_limit_warning", Array());
-	}
-
 	LocalVector<Node *> nodes;
 	LocalVector<ObjectID> ids;
 	for (Node *node : picked_nodes) {
@@ -1963,6 +1974,16 @@ void RuntimeNodeSelect::_send_ids(const Vector<Node *> &p_picked_nodes, bool p_i
 		}
 	}
 
+	uint32_t limit = max_selection - selected_ci_nodes.size();
+#ifndef _3D_DISABLED
+	limit -= selected_3d_nodes.size();
+#endif // _3D_DISABLED
+	if (ids.size() > limit) {
+		ids.resize(limit);
+		nodes.resize(limit);
+		EngineDebugger::get_singleton()->send_message("show_selection_limit_warning", Array());
+	}
+
 	for (ObjectID id : selected_ci_nodes) {
 		ids.push_back(id);
 		nodes.push_back(ObjectDB::get_instance<Node>(id));
@@ -1973,11 +1994,6 @@ void RuntimeNodeSelect::_send_ids(const Vector<Node *> &p_picked_nodes, bool p_i
 		nodes.push_back(ObjectDB::get_instance<Node>(KV.key));
 	}
 #endif // _3D_DISABLED
-
-	if (ids.size() > (unsigned)max_selection) {
-		ids.resize(max_selection);
-		EngineDebugger::get_singleton()->send_message("show_selection_limit_warning", Array());
-	}
 
 	if (ids.is_empty()) {
 		EngineDebugger::get_singleton()->send_message("remote_nothing_selected", message);
@@ -2664,13 +2680,18 @@ void RuntimeNodeSelect::_find_3d_items_at_rect(const Rect2 &p_rect, Vector<Selec
 	shape.instantiate();
 	shape->set_points(points);
 
+	// Keep track of the currently listed nodes, so repeats can be ignored.
+	HashSet<Node *> node_list;
+
 	// Start with physical objects.
 	PhysicsDirectSpaceState3D *ss = root->get_world_3d()->get_direct_space_state();
-	PhysicsDirectSpaceState3D::ShapeResult result;
+	PhysicsDirectSpaceState3D::ShapeResult results[32];
 	PhysicsDirectSpaceState3D::ShapeParameters shape_params;
 	shape_params.shape_rid = shape->get_rid();
 	shape_params.collide_with_areas = true;
-	if (ss->intersect_shape(shape_params, &result, 32)) {
+	const int num_hits = ss->intersect_shape(shape_params, results, 32);
+	for (int i = 0; i < num_hits; i++) {
+		const PhysicsDirectSpaceState3D::ShapeResult &result = results[i];
 		SelectResult res;
 		res.item = Object::cast_to<Node>(result.collider);
 		res.order = -dist_pos.distance_to(Object::cast_to<Node3D>(res.item)->get_global_transform().origin);
@@ -2683,12 +2704,18 @@ void RuntimeNodeSelect::_find_3d_items_at_rect(const Rect2 &p_rect, Vector<Selec
 			for (uint32_t &I : owners) {
 				SelectResult res_shape;
 				res_shape.item = Object::cast_to<Node>(collision->shape_owner_get_owner(I));
-				res_shape.order = res.order;
-				r_items.push_back(res_shape);
+				if (!node_list.has(res_shape.item)) {
+					node_list.insert(res_shape.item);
+					res_shape.order = res.order;
+					r_items.push_back(res_shape);
+				}
 			}
 		}
 
-		r_items.push_back(res);
+		if (!node_list.has(res.item)) {
+			node_list.insert(res.item);
+			r_items.push_back(res);
+		}
 	}
 #endif // PHYSICS_3D_DISABLED
 
@@ -2718,8 +2745,11 @@ void RuntimeNodeSelect::_find_3d_items_at_rect(const Rect2 &p_rect, Vector<Selec
 				if (mesh_collision->inside_convex_shape(transformed_frustum.ptr(), transformed_frustum.size(), convex_points.ptr(), convex_points.size(), mesh_scale)) {
 					SelectResult res;
 					res.item = Object::cast_to<Node>(obj);
-					res.order = -dist_pos.distance_to(gt.origin);
-					r_items.push_back(res);
+					if (!node_list.has(res.item)) {
+						node_list.insert(res.item);
+						res.order = -dist_pos.distance_to(gt.origin);
+						r_items.push_back(res);
+					}
 
 					continue;
 				}

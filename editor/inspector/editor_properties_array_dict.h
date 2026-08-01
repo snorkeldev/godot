@@ -139,6 +139,8 @@ class EditorPropertyArray : public EditorProperty {
 	void _reorder_button_up();
 	void _create_new_property_slot();
 
+	void _resource_selected(const String &p_path, Ref<Resource> p_resource);
+
 	Node *get_base_node();
 
 protected:
@@ -243,6 +245,7 @@ class EditorPropertyDictionary : public EditorProperty {
 	void _page_changed(int p_page);
 	void _edit_pressed();
 	void _property_changed(const String &p_property, Variant p_value, const String &p_name = "", bool p_changing = false);
+	void _resource_selected(const String &p_path, Ref<Resource> p_resource);
 	void _change_type(Object *p_button, int p_slot_index);
 	void _change_type_menu(int p_index);
 
@@ -294,9 +297,6 @@ class EditorPropertyLocalizableString : public EditorProperty {
 	void _add_locale_popup();
 	void _add_locale(const String &p_locale);
 	void _object_id_selected(const StringName &p_property, ObjectID p_id);
-
-protected:
-	void _notification(int p_what);
 
 public:
 	virtual void update_property() override;
